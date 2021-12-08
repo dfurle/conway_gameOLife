@@ -3,49 +3,40 @@
 #include <time.h>
 #include <unistd.h>
 
-typedef sf::Vector2f Vec;
+std::string glider_text("  x\nx x\n xx");
 
-int WIDTH = 1600;
-int HEIGHT = 1200;
-bool sim = false;
-double chance = 0.95;
-int size = 10;
+bool Game::sim = false;
 
-void glider(sf::Vector2i pos, std::vector<std::vector<std::pair<sf::RectangleShape,bool> > >& boxes){
+
+void glider(sf::Vector2i pos, std::vector<std::vector<Cell> >& boxes){
   if(pos.x+1 < boxes.size() && pos.x-1 >= 0 && pos.y-2 >= 0){
-    boxes[pos.x][pos.y].second = true;
-    boxes[pos.x+1][pos.y].second = true;
-    boxes[pos.x+1][pos.y-1].second = true;
-    boxes[pos.x][pos.y-2].second = true;
-    boxes[pos.x-1][pos.y].second = true;
+    boxes[(pos.x)%Game::vecWidth][(pos.y)%Game::vecHeight].state = true;
+    boxes[(pos.x+1)%Game::vecWidth][(pos.y)%Game::vecHeight].state = true;
+    boxes[(pos.x+1)%Game::vecWidth][(pos.y-1)%Game::vecHeight].state = true;
+    boxes[(pos.x)%Game::vecWidth][(pos.y-2)%Game::vecHeight].state = true;
+    boxes[(pos.x-1)%Game::vecWidth][(pos.y)%Game::vecHeight].state = true;
   }
 }
 
 
-Game::Game()
+Game::Game(): boxes(vecWidth,std::vector<Cell>(vecHeight))
 {
   srand(time(NULL));
   window = new sf::RenderWindow(sf::VideoMode(WIDTH,HEIGHT),"Conway", sf::Style::Close | sf::Style::Titlebar);
   window->setFramerateLimit(60);
 
-  for(int i = 0; i < WIDTH; i+=size){
-    std::vector<std::pair<sf::RectangleShape,bool> > tmp;
-    for(int j = 0; j < HEIGHT; j+=size){
-      sf::RectangleShape rect(sf::Vector2f(size,size));
-      rect.setPosition(sf::Vector2f(i,j));
-      rect.setOutlineColor(sf::Color::Black);
-      rect.setOutlineThickness(1.f);
-      tmp.push_back(std::pair<sf::RectangleShape,bool>(rect,false));
+  for(int i = 0; i < vecWidth; i++){
+    for(int j = 0; j < vecHeight; j++){
+      boxes[i][j] = Cell(size,i*size,j*size);
     }
-    boxes.push_back(tmp);
   }
 
   for(int i = 0; i < boxes.size(); i++){
     for(int j = 0; j < boxes[i].size(); j++){
       if(rand()/(double)RAND_MAX > chance)
-        boxes[i][j].second = true;
+        boxes[i][j].state = true;
       else
-        boxes[i][j].second = false;
+        boxes[i][j].state = false;
     }
   }
   
@@ -68,89 +59,73 @@ void Game::simulate(){
   int revive = 0;
   int alive = 0;
   int dead = 0;
-  std::vector<std::pair<std::pair<int,int>,bool> > changed;
   for(int x=0;x<boxes.size();x++){
     for(int y=0;y<boxes[x].size();y++){
       int a = 0;
       if(x+1 < boxes.size())
-        boxes[x+1][y].second ? a++ : a;
-
+        boxes[x+1][y].state ? a++ : a;
       if(x+1 < boxes.size() && y+1 < boxes[x].size())
-        boxes[x+1][y+1].second ? a++ : a;
-
+        boxes[x+1][y+1].state ? a++ : a;
       if(x-1 >= 0)
-        boxes[x-1][y].second ? a++ : a;
-
+        boxes[x-1][y].state ? a++ : a;
       if(x-1 >= 0 && y-1 >= 0)
-        boxes[x-1][y-1].second ? a++ : a;
-
+        boxes[x-1][y-1].state ? a++ : a;
       if(y+1 < boxes[x].size())
-        boxes[x][y+1].second ? a++ : a;
-
+        boxes[x][y+1].state ? a++ : a;
       if(y-1 >=0)
-        boxes[x][y-1].second ? a++ : a;
-
+        boxes[x][y-1].state ? a++ : a;
       if(x+1 < boxes.size() && y-1 >= 0)
-        boxes[x+1][y-1].second ? a++ : a;
-
+        boxes[x+1][y-1].state ? a++ : a;
       if(x-1 >= 0 && y+1 < boxes[x].size())
-        boxes[x-1][y+1].second ? a++ : a;
+        boxes[x-1][y+1].state ? a++ : a;
 
-
-      if(!boxes[x][y].second && a == 3){
+      if(!boxes[x][y].state && a == 3){
         revive++;
-        changed.push_back(std::pair<std::pair<int,int>,bool>(std::pair<int,int>(x,y),true));
-        // boxes[x][y].second = true;
-      } else if(boxes[x][y].second && (a == 2 || a == 3)){
+        boxes[x][y].next_state = true;
+      } else if(boxes[x][y].state && (a == 2 || a == 3)){
         alive++;
+        boxes[x][y].next_state = true;
       } else {
         dead++;
-        changed.push_back(std::pair<std::pair<int,int>,bool>(std::pair<int,int>(x,y),false));
-        // boxes[x][y].second = false;
+        boxes[x][y].next_state = false;
       }
     }
   }
-  for(int i=0;i<changed.size();i++){
-    boxes[changed[i].first.first][changed[i].first.second].second = changed[i].second;
+  for(int x=0;x<boxes.size();x++){
+    for(int y=0;y<boxes[x].size();y++){
+      boxes[x][y].state = boxes[x][y].next_state;
+    }
   }
   printf("r: %d, a: %d, d: %d\n", revive, alive, dead);
 }
 
 void Game::run(){
+  Button leftMB(sf::Mouse::Left);
+  Key keyG(sf::Keyboard::Key::G);
+  Key keySpace(sf::Keyboard::Key::Space);
   while(window->isOpen()){
     pollSFML();
-    if(sf::Mouse::isButtonPressed(sf::Mouse::Left)){
+    if(leftMB.poll()){
       sf::Vector2f mousePos = window->mapPixelToCoords(sf::Mouse::getPosition(*window));
-      for(int x=0;x<boxes.size();x++){
-        for(int y=0;y<boxes[x].size();y++){
-          if(boxes[x][y].first.getGlobalBounds().contains(mousePos))
-            boxes[x][y].second = true;
-        }
-      }
+      int x = 0, y = 0;
+      x = mousePos.x / size;
+      y = mousePos.y / size;
+      if(x >= 0 && x < vecWidth && y >= 0 && y < vecHeight)
+        boxes[x][y].state = !boxes[x][y].state;
     }
-    if(sf::Mouse::isButtonPressed(sf::Mouse::Right)){
+    if(keyG.poll()){
       sf::Vector2f mousePos = window->mapPixelToCoords(sf::Mouse::getPosition(*window));
-      for(int x=0;x<boxes.size();x++){
-        for(int y=0;y<boxes[x].size();y++){
-          if(boxes[x][y].first.getGlobalBounds().contains(mousePos))
-            boxes[x][y].second = false;
-        }
-      }
+      int x = 0, y = 0;
+      x = mousePos.x / size;
+      y = mousePos.y / size;
+      if(x >= 0 && x < vecWidth && y >= 0 && y < vecHeight)
+        glider(sf::Vector2i(x,y),boxes);
     }
-    if(sf::Keyboard::isKeyPressed(sf::Keyboard::Key::G)){
-      sf::Vector2f mousePos = window->mapPixelToCoords(sf::Mouse::getPosition(*window));
-      for(int x=0;x<boxes.size();x++){
-        for(int y=0;y<boxes[x].size();y++){
-          if(boxes[x][y].first.getGlobalBounds().contains(mousePos))
-            glider(sf::Vector2i(x,y),boxes);
-        }
-      }
+    if(keySpace.poll()){
+      sim = !sim;
     }
-    if(sf::Keyboard::isKeyPressed(sf::Keyboard::Key::Space))
-      sim = true;
     if(sim)
       simulate();
-    
 
     render();
     usleep(5e4);
@@ -159,13 +134,13 @@ void Game::run(){
 
 void Game::render(){
   window->clear(sf::Color::White);
-  for(int x=0;x<boxes.size();x++){
-    for(int y=0;y<boxes[x].size();y++){
-      if(boxes[x][y].second)
-        boxes[x][y].first.setFillColor(sf::Color::Red);
+  for(int x=0;x<vecWidth;x++){
+    for(int y=0;y<vecHeight;y++){
+      if(boxes[x][y].state)
+        boxes[x][y].setFillColor(sf::Color::Red);
       else
-        boxes[x][y].first.setFillColor(sf::Color::White);
-      window->draw(boxes[x][y].first);
+        boxes[x][y].setFillColor(sf::Color::White);
+      window->draw(boxes[x][y]);
     }
   }
   window->display();
@@ -173,12 +148,6 @@ void Game::render(){
 
 
 int main(int argc, char* argv[]){
-  if(argc>1){
-    std::string str(argv[1]);
-    if(str.find("none",1))
-      chance = 1.0;
-
-  }
   Game game;
   return 0;
 }
